@@ -16,7 +16,6 @@ dist/
 # Undo-tree save-files
 *.~undo-tree
 
-
 # emacs packages
 elpa/
 
