@@ -1,0 +1,326 @@
+#+PROPERTY: header-args:emacs-lisp  :mkdirp yes :lexical t :noweb yes
+
+#+title: Emacs Literate Config
+#+author: Armin Darvish
+#+Version: 1.0 (emacs30)
+#+Notes: This is a minimal example to show the benefits of using noweb references and tangling to multiple files
+
+* init.el
+:PROPERTIES:
+:header-args:emacs-lisp: :tangle ./init.el :noweb yes
+:END:
+** header
+#+begin_src emacs-lisp
+;;; init.el --- -*- lexical-binding: t;
+
+#+end_src
+** load Path
+#+begin_src emacs-lisp
+(let ((default-directory (file-truename (expand-file-name "lisp/" user-emacs-directory))))
+  (progn
+    (normal-top-level-add-to-load-path '("."))
+    (normal-top-level-add-subdirs-to-load-path)))
+
+#+end_src
+** auto tangle init
+
+#+begin_src emacs-lisp
+;; automatically tangle emacs config from init.org
+(defun ad/emacs-org-babel-tangle-config ()
+  (when (string-equal (buffer-file-name)
+                      (expand-file-name "init.org" user-emacs-directory))
+    (let ((org-confirm-babel-evaluate nil))
+      (org-babel-tangle))))
+(add-hook 'org-mode-hook (lambda () (add-hook 'after-save-hook #'ad/emacs-org-babel-tangle-config)))
+
+#+end_src
+** custom file
+#+begin_src emacs-lisp
+;; Keep customization settings in a temporary file
+(setq custom-file (expand-file-name "custom/custom.el" user-emacs-directory))
+(load custom-file t)
+
+#+end_src
+** modules
+#+begin_src emacs-lisp
+(require 'my-packages)
+(require 'my-completion)
+(require 'my-python)
+(require 'my-git)
+
+#+end_src
+** footer
+#+begin_src emacs-lisp
+;;; init.el ends here
+#+end_src
+* modules
+** Packages
+#+begin_src emacs-lisp :tangle ./lisp/my-packages.el
+;;; my-packages.el --- -*- lexical-binding: t;
+
+(require 'package)
+;; Adds the Melpa archive to the list of available repositories
+(setq package-archives
+      '(("elpa" . "https://elpa.gnu.org/packages/")
+        ("melpa-stable" . "https://stable.melpa.org/packages/")
+        ("melpa" . "https://melpa.org/packages/")))
+
+;; Initializes the package infrastructure
+(package-initialize)
+(package-refresh-contents)
+
+;; Makes sure required packages get installed
+(require 'use-package-ensure)
+(setq use-package-always-ensure t)
+
+(provide 'my-packages)
+;;; my-packages.el ends here
+#+end_src
+** Key Bindings
+*** python
+:PROPERTIES:
+:header-args:emacs-lisp: :noweb-ref python-keys
+:END:
+#+begin_src emacs-lisp
+(keymap-set python-mode-map "C-c C-c" #'elpy-shell-send-region-or-buffer-and-go)
+(keymap-set python-mode-map "C-c SPC" #'elpy-shell-switch-to-shell)
+(keymap-set inferior-python-mode-map "C-c SPC" #'elpy-shell-switch-to-buffer)
+#+end_src
+*** vertico
+:PROPERTIES:
+:header-args:emacs-lisp: :noweb-ref vertico-keys
+:END:
+#+begin_src emacs-lisp
+:bind (:map vertico-map
+              ("C-j" . vertico-next)
+              ("C-k" . vertico-previous)
+              ("C-f" . vertico-exit)
+              ("C-l" . exit-minibuffer)
+              ("<backtab>" . vertico-next-group)
+
+              (:map minibuffer-local-map
+                    ;;("<backspace>" . my:minibuffer-backward-kill)
+                    ("M-j" . next-history-element)
+                    ("M-k" . previous-history-element)
+                    ("M-i" . completion-at-point)
+                    ))
+#+end_src
+*** consult
+:PROPERTIES:
+:header-args:emacs-lisp: :noweb-ref consult-keys
+:END:
+#+begin_src emacs-lisp
+:bind
+    (("C-s" . consult-line)
+     ("C-M-l" . consult-imenu)
+     ("C-M-j" . consult-buffer)
+     ("s-<tab>" . #'my:consult-completion-at-point)
+     :map minibuffer-local-map
+     ("C-r" . consult-history)
+     ("C-s" . previous-history-element)
+     )
+#+end_src
+*** embark
+
+:PROPERTIES:
+:header-args:emacs-lisp: :noweb-ref embark-keys
+:END:
+#+begin_src emacs-lisp
+ :bind
+  (("C-." . embark-act)
+   ("C-," . embark-dwim)         ;; pick some comfortable binding
+   ("C-h B" . embark-bindings)
+   (:map minibuffer-local-map
+         ("C-." . embark-act)
+         ("C-," . embark-dwim)))
+#+end_src
+** Completion
+**** my-completion feature
+#+begin_src emacs-lisp :tangle ./lisp/my-completion.el
+;;; my-completion.el --- -*- lexical-binding: t;
+
+<<my-completion-packages>>
+
+(provide 'my-completion)
+;;; my-completion.el ends here
+#+end_src
+**** packages
+:PROPERTIES:
+:header-args:emacs-lisp: :noweb-ref my-completion-packages :noweb yes
+:END:
+***** vertico
+#+begin_src emacs-lisp
+(use-package vertico
+  :custom
+  (vertico-cycle t)
+  :init
+  (vertico-mode +1)
+  (vertico-multiform-mode)
+  :config
+  <<my-vertico-config>>
+
+  <<vertico-keys>>
+  )
+
+#+end_src
+****** vertico-config
+:PROPERTIES:
+:header-args:emacs-lisp: :noweb-ref my-vertico-config :noweb yes
+:END:
+#+begin_src emacs-lisp
+(defun minibuffer-format-candidate (orig cand prefix suffix index _start)
+  (let ((prefix (if (= vertico--index index)
+                    (concat " " prefix)
+                  (concat "  " prefix))))
+    (funcall orig cand prefix suffix index _start)))
+
+  (advice-add #'vertico--format-candidate
+           :around #'minibuffer-format-candidate)
+
+#+end_src
+***** consult
+#+begin_src emacs-lisp
+(use-package consult
+  :hook (completion-list-mode . consult-preview-at-point-mode)
+  :custom
+  (consult-narrow-key "M-o")
+  :config
+  (consult-preview-at-point-mode)
+  (consult-customize
+   ;; consult-theme
+   ;;:preview-key '(:debounce  any)
+   consult-ripgrep consult-git-grep consult-grep
+   consult-bookmark consult-recent-file consult-xref
+   consult--source-bookmark consult--source-recent-file
+   consult--source-project-recent-file
+   :preview-key "C-o")
+
+  (setq xref-show-xrefs-function #'consult-xref
+        xref-show-definitions-function #'consult-xref)
+
+  <<consult-keys>>
+
+)
+
+#+end_src
+***** embark-consult
+#+begin_src emacs-lisp
+(use-package  embark-consult
+    :demand t
+    :hook
+    (embark-collect-mode . consult-preview-at-point-mode)
+    :config
+    (add-hook 'embark-collect-mode-hook #'consult-preview-at-point-mode))
+
+#+end_src
+***** embark
+#+begin_src emacs-lisp
+(use-package embark
+  :demand t
+  :init
+   ;; Optionally replace the key help with a completing-read interface
+  (setq prefix-help-command #'embark-prefix-help-command)
+  :config
+  ;; Hide the mode line of the Embark live/completions buffers
+  (add-to-list 'display-buffer-alist
+               '("\\`\\*Embark Collect \\(Live\\|Completions\\)\\*"
+                 nil
+                 (window-parameters (mode-line-format . none))))
+
+  <<embark-keys>>)
+
+#+end_src
+***** consult-gh
+#+begin_src emacs-lisp
+(use-package consult-gh
+    :custom
+    (consult-gh-repo-maxnum 100)
+    (consult-gh-issues-maxnum 1000)
+    (consult-gh-large-file-warning-threshold 3000000)
+    (consult-gh-confirm-name-before-fork nil)
+    (consult-gh-confirm-before-clone t)
+    (consult-gh-default-clone-directory my:projectfolder)
+    (consult-gh-show-preview t)
+    (consult-gh-preview-key "C-o")
+    (consult-gh-repo-preview-major-mode nil)
+    (consult-gh-issue-preview-major-mode 'org-mode)
+    (consult-gh-topic-major-mode 'org-mode)
+    (consult-gh-notifications-show-unread-only t)
+    (consult-gh-issue-action #'consult-gh--issue-view-action)
+    (consult-gh-pr-action #'consult-gh--pr-view-action)
+    (consult-gh-repo-action #'consult-gh--repo-browse-files-action)
+    (consult-gh-file-action #'consult-gh--files-view-action)
+    (consult-gh-code-action #'consult-gh--code-view-action)
+    (consult-gh-notifications-action #'consult-gh--notifications-action)
+    (consult-gh-dashboard-action #'consult-gh--dashboard-action)
+    (consult-gh-default-interactive-command #'consult-gh-transient)
+    (consult-gh-prioritize-local-folder 'nil)
+    (consult-gh-completion-pullrequest-prefix (propertize "󰓂 " 'face 'consult-gh-repo))
+    (consult-gh-completion-issue-prefix (propertize " " 'face 'consult-gh-issue))
+    (consult-gh-completion-user-prefix (propertize " " 'face 'consult-gh-user))
+    (consult-gh-completion-branch-prefix (propertize " " 'face 'consult-gh-branch))
+    (consult-gh-completion-label-prefix (propertize "󰓹 " 'face 'consult-gh-tag))
+    (consult-gh-completion-milestone-prefix (propertize " " 'face 'consult-gh-branch))
+    (consult-gh-completion-project-prefix (propertize "󰑣 " 'face 'consult-gh-package))
+    (consult-gh-group-dashboard-by :reason)
+    :config
+    (consult-gh-enable-default-keybindings))
+
+(use-package consult-gh-embark
+  :config
+  (consult-gh-embark-mode +1))
+
+#+end_src
+
+** Dev
+*** Programming Langugage
+**** python
+***** my-python feature
+#+begin_src emacs-lisp :tangle ./lisp/my-python.el
+;;; my-python.el --- -*- lexical-binding: t;
+
+<<my-python-packages>>
+
+(provide 'my-python)
+;;; my-python.el ends here
+#+end_src
+***** packages
+:PROPERTIES:
+:header-args:emacs-lisp: :noweb-ref my-python-packages :noweb yes
+:END:
+****** elpy
+#+begin_src emacs-lisp
+(use-package elpy
+  :init
+  (elpy-enable))
+#+end_src
+****** python-mode
+#+begin_src emacs-lisp
+(use-package python-mode
+  :config
+  <<python-keys>>)
+
+#+end_src
+*** Git
+**** my-git feature
+#+begin_src emacs-lisp :tangle ./lisp/my-git.el
+;;; my-git.el --- -*- lexical-binding: t;
+
+<<my-git-packages>>
+
+(provide 'my-git)
+;;; my-git.el ends here
+#+end_src
+**** packages
+:PROPERTIES:
+:header-args:emacs-lisp: :noweb-ref my-git-packages :noweb yes
+:END:
+***** magit
+#+begin_src emacs-lisp
+(use-package magit
+  :demand t
+  :config
+  (setq magit-repository-directories '(("~/code" . 1)))
+  (setq git-commit-summary-max-length 50)
+  (add-to-list 'magit-status-headers-hook #'magit-insert-user-header))
+#+end_src
